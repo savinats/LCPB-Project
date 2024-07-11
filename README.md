@@ -7,7 +7,7 @@ Contributors:
 - Savina Tsichli
 
 The project consists of the following files and folders:
-- **Next_Token_final.ipynb**
+- **Next_Token_final.ipynb** Notebook for analysis of the next generated token and the system's entropies.
 - **Token_distances_final.ipynb** Notebook for analysis of token embedding distances.
 - **DistFuncs.py** File with helper functions for the token distance analysis.
 - **prompts/** Folder containing prompt text files.
