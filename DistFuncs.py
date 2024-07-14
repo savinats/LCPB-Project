@@ -215,7 +215,7 @@ def get_last_token_distance(output, modules):
     
     return idx, module_names, dist_from_token
 
-def plot_kde(dist_from_token, idx, module_names, labels, filename="dist_kde"):
+def plot_kde(dist_from_token, idx, module_names, labels, filename="dist_kde", fix_lims=True):
     """
     Plot the Kernel Density Estimate (KDE) of token distance distributions.
 
@@ -239,6 +239,10 @@ def plot_kde(dist_from_token, idx, module_names, labels, filename="dist_kde"):
     filename : str, optional (default="dist_kde")
         Base file name under which the plots are saved.
 
+    fix_lims: bool, optional (default=True)
+        Determines if x-axis limits are fixed to (0, 2).
+        If False, axis limits are determined by dist_from_token.
+
     Returns:
     --------
     None
@@ -249,7 +253,11 @@ def plot_kde(dist_from_token, idx, module_names, labels, filename="dist_kde"):
         for dist, label in zip(dist_from_token, labels):
             d = dist[n]
             kde = scipy.stats.gaussian_kde(d)
-            x_vals = np.linspace(d.min(), d.max(), 1000)
+            if fix_lims:
+                x_vals = np.linspace(0, 2, 1000)
+            else: 
+                x_vals = np.linspace(d.min(), d.max(), 1000)
+                
             kde_vals = kde(x_vals)
 
             ax.plot(x_vals, kde_vals, lw=2, linestyle="-", label=label)
@@ -341,7 +349,7 @@ def plot_dist_heatmap(distances, labels, module_idx, scaling="SharedLin", filena
         plt.tight_layout()
 
         # save each figure as png under specified name + module identifier
-        plt.savefig(f"{filename}_mod_{module_idx[i].strip()}.png")
+        plt.savefig(f"{filename}_mod{'_'.join(module_idx[i].split())}.png")
         plt.close(fig)
 
 # we can also make a gif instead :D
