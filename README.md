@@ -11,3 +11,5 @@ The project consists of the following files and folders:
 - **Token_distances_final.ipynb** Notebook for analysis of token embedding distances.
 - **DistFuncs.py** File with helper functions for the token distance analysis.
 - **prompts/** Folder containing prompt text files.
+-**Principal_Component_Analysis** Performs 3D PCA on GPT-2 hidden states from large datasets to visualize and analyze model representations.
+
