@@ -69,16 +69,17 @@ def dist_matr(output, type='euclid'):
         raise ValueError("Type must be 'euclid' or 'cosine'")
     return mat
 
-# function to get the layer outputs
-def get_layer_outputs(model, tokenizer, prompt):
+# function to get the module outputs
+def get_module_outputs(model, tokenizer, prompt, getInputs=False):
     """
-    Extract the outputs of each layer in a model given an input prompt by attaching forward
-    hooks to all model layers and processing the input prompt.
+    Extract the inputs and outputs of each module in a model given an input prompt by attaching forward
+    hooks to all model modules and processing the input prompt. Returns separate lists for inputs and
+    outputs if getInputs = True.
 
     Parameters:
     --------
     model : torch.nn.Module
-        Model from which to get the layer outputs.
+        Model from which to get the module outputs.
     
     tokenizer : transformers.PreTrainedTokenizer 
         Tokenizer to encode the input prompt.
@@ -86,26 +87,37 @@ def get_layer_outputs(model, tokenizer, prompt):
     prompt : str 
         Input text to be processed by the model.
 
+    getInput : bool, optional (default=False)
+        Determines if module inputs are also extracted and returned.
+
     Returns:
     --------
     Tupel
         List[np.ndarray]: List containing the output of each module as numpy arrays.
+        List[str]: List of module names as str.
+
+    or, if getInput=True:
+        List[np.ndarray]: List containing the output of each module as numpy arrays.
+        List[np.ndarray]: List containing the input of each module as numpy arrays.
         List[str]: List of module names as str.
         
     """
     
     # use a hook to get the output as numpy array
     outputs = []
+    inputs = []
     modules = []
+
     def hook(module, input, output):
         outputs.append(output[0].detach().numpy().squeeze())
         modules.append(str(module))
+        if getInputs:
+            inputs.append(input[0].detach().numpy().squeeze())    
     
-    
-    # Attaching hook to all layers
+    # Attaching hook to all modules
     hook_handles = []
-    for layer in model.modules():
-        handle=layer.register_forward_hook(hook)
+    for module in model.modules():
+        handle=module.register_forward_hook(hook)
         hook_handles.append(handle)
 
     input_ids = tokenizer.encode(prompt, return_tensors="pt")
@@ -118,16 +130,83 @@ def get_layer_outputs(model, tokenizer, prompt):
     for handle in hook_handles:
         handle.remove()
 
-    return(outputs, modules)
+    if getInputs:
+        return(outputs, inputs, modules)
+    else:
+        return(outputs, modules)
 
-def get_module_names(model, tokenizer):
+def get_module_data(model, tokenizer, prompt, getInputs=False):
     """
-    Extract the names of the layer modules in the order of input processing.
+    Extract the inputs and outputs of each module in a model given an input prompt by attaching forward
+    hooks to all model modules and processing the input prompt. Returns list containing both inputs and
+    outputs if getInputs = True.
 
     Parameters:
     --------
     model : torch.nn.Module
-        Model from which to get the layer outputs.
+        Model from which to get the module outputs.
+    
+    tokenizer : transformers.PreTrainedTokenizer 
+        Tokenizer to encode the input prompt.
+    
+    prompt : str 
+        Input text to be processed by the model.
+
+    getInput : bool, optional (default=False)
+        Determines if module inputs are also extracted and returned.
+
+    Returns:
+    --------
+    Tupel
+        List[np.ndarray]: List containing the output of each module as numpy arrays.
+        List[str]: List of module names as str.
+
+    or, if getInput=True:
+        List[np.ndarray]: List containing the output of each module as numpy arrays.
+        List[np.ndarray]: List containing the input of each module as numpy arrays.
+        List[str]: List of module names as str.
+        
+    """
+    
+    # use a hook to get the data as numpy array
+    data = []
+    modules = []
+
+    def hook(module, input, output):
+        if getInputs:
+            data.append(input[0].detach().numpy().squeeze())    
+            modules.append(str(module))
+            
+        data.append(output[0].detach().numpy().squeeze())
+        modules.append(str(module))
+        
+    
+    # Attaching hook to all modules
+    hook_handles = []
+    for module in model.modules():
+        handle=module.register_forward_hook(hook)
+        hook_handles.append(handle)
+
+    input_ids = tokenizer.encode(prompt, return_tensors="pt")
+
+    # Pass the input through the model (this triggers the hooks)
+    with torch.no_grad():
+        model(input_ids)
+    
+    # Remove all hooks
+    for handle in hook_handles:
+        handle.remove()
+        
+    return(data, modules)
+
+def get_module_names(model, tokenizer):
+    """
+    Extract the names of the module modules in the order of input processing.
+
+    Parameters:
+    --------
+    model : torch.nn.Module
+        Model from which to get the module outputs.
     
     tokenizer : transformers.PreTrainedTokenizer 
         Tokenizer to encode the input prompt.
@@ -145,10 +224,10 @@ def get_module_names(model, tokenizer):
         modules.append(str(module))
     
     
-    # Attaching hook to all layers
+    # Attaching hook to all modules
     hook_handles = []
-    for layer in model.modules():
-        handle=layer.register_forward_hook(hook)
+    for module in model.modules():
+        handle=module.register_forward_hook(hook)
         hook_handles.append(handle)
 
     input_ids = tokenizer.encode(" ", return_tensors="pt")
@@ -162,6 +241,139 @@ def get_module_names(model, tokenizer):
         handle.remove()
 
     return(modules)
+
+
+def filter_by_shape(outputs, module_names, ref_shape=None, returnIndex=False):
+    """
+    Filters the outputs and module names based on a reference shape.
+
+    Parameters:
+    --------
+    outputs: list
+        List of output tensors from different modules.
+
+    module_names: list
+        List of module names corresponding to the outputs.
+
+    ref_shape: tuple, optional (default=None)
+        The reference shape to filter by. If None, the shape of the first output is used.
+
+    returnIndex: bool, optional (default=False)
+        Whether to return list of original indices of filtered outputs.
+
+    Returns:
+    --------
+
+    tuple: 
+        A tuple containing:
+        - filtered_outputs (np.array): Outputs that match the reference shape.
+        - filtered_module_names (np.array): Module names corresponding to the filtered outputs.
+        - idx (np.array, optional): Indices of the modules where outputs match the reference shape.
+
+    """
+    if ref_shape is None:
+        ref_shape = outputs[0].shape
+
+    # get indices of modules where outputs have the right shape
+    idx = np.array([i for i, o in enumerate(outputs) if o.shape == ref_shape])
+
+    # filter to get the outputs & module names at idx
+    filtered_outputs = np.array([outputs[i] for i in idx])
+    filtered_module_names = np.array([str(module_names[i]).split('(', 1)[0].strip() for i in idx])
+
+    if returnIndex:
+        return filtered_outputs, filtered_module_names, idx
+
+    else:
+        return filtered_outputs, filtered_module_names
+
+def remove_module_type(outputs, modules, type="Dropout", idx=None):
+    """
+    Removes modules of a specific type from the outputs and modules.
+
+    Parameters:
+    --------
+    outputs: list
+        List of outputs from different modules.
+
+    modules: list
+        List of module names corresponding to outputs.
+
+    type: str or list
+        The type(s) of modules to remove. Can be a single string or a list of strings.
+
+    idx: list, optional (default=None)
+        Indices of the original modules. If provided, the indices of the remaining modules are returned.
+
+    Returns:
+    --------
+    tuple: 
+        A tuple containing:
+        - filtered_outputs (np.array): Outputs with specified modules removed.
+        - filtered_modules (np.array): Module names with specified modules removed.
+        - filtered_idx (np.array, optional): Updated indices if `idx` is provided.
+    """
+    if isinstance(type, str):
+        type = [type]
+    
+    # get indices of modules that do not match the specified types
+    idr = np.array([i for i, m in enumerate(modules) if all(str(m)[:len(t)] != t for t in type)])
+    
+    # filter to get the outputs at idx
+    filtered_outputs = np.array([outputs[i] for i in idr])
+    filtered_modules = np.array([str(modules[i]).split('(', 1)[0].strip() for i in idr])
+
+    if idx is not None:
+        filtered_idx = np.array([idx[i] for i in idr])
+        return filtered_outputs, filtered_modules, filtered_idx
+
+    return filtered_outputs, filtered_modules
+
+
+def filter_duplicates(data, mods, idx=None):
+    """
+    Filters out duplicate inputs/outputs from the data list, keeps the first instance of each.
+    Removes corresponding elements from mods (and idx, if given).
+
+    Parameters:
+    --------
+    data : list
+        List of numpy arrays representing inputs/outputs of modules.
+
+    mods: list
+        List of module names, same length as data.
+
+    idx: list, optional (default=None)
+        List of module indices.
+
+    Returns:
+    --------
+        tuple:
+            A tuple containing:
+            - filtered_data (list): data list without duplicates.
+            - filtered_mods (list): Filtered module names corresponding to filtered data.
+            - filtered_idx (list, optional): Filtered module indices.
+    """
+    seen = set()
+    filtered_data = []
+    filtered_mods = []
+    filtered_idx = [] if idx is not None else None
+
+    for i, (d, m) in enumerate(zip(data, mods)):
+        # Create a hashable identifier for the array
+        array_hash = (d.shape, d.tobytes())
+        if array_hash not in seen:
+            seen.add(array_hash)
+            filtered_data.append(d)
+            filtered_mods.append(m)
+            if idx is not None:
+                filtered_idx.append(idx[i])
+
+    if idx is not None:
+        return filtered_data, filtered_mods, filtered_idx
+
+    return filtered_data, filtered_mods
+
 
 def read_prompt(file_path):
     """
@@ -180,58 +392,64 @@ def read_prompt(file_path):
     with open(file_path, 'r') as file:
         return file.read().replace('\n', '')
 
-def get_last_token_distance(output, modules):
+def get_last_token_distance(data, modules, ref_shape=None, returnIndex=False):
     """
-    Calculate cosine distances between the last token and all other tokens in layer outputs.
-    Filters layers where the outputs have the expected shape (Nr. of tokens, embedding dimension).
+    Calculate cosine distances between the last token and all other tokens in module outputs.
+    Filters modules where the outputs have the expected shape (Nr. of tokens, embedding dimension).
 
     Parameters:
     --------
-    output : List[np.ndarray]
-        List of module outputs as numpy arrays.
+    data : List[np.ndarray]
+        List of module inputs/outputs as numpy arrays.
     modules : List[str]
         List of module names as strings.
+    ref_shape : Tuple, optional(default=None)
+        Shape by which the outputs should be filtered prior to calculating the distances.
+        If None, use unfiltered outputs.
+    returnIndex: bool, optional (default=False)
+        Whether to return list of original indices of filtered outputs.
 
     Returns:
     --------
     tuple:
-        np.ndarray: Indices of the modules with the expected shape.
+        np.ndarray: Distances from the last token for each module.
         np.ndarray: Names of the modules corresponding to the indices.
-        np.ndarray: Distances from the last token for each layer.
+        np.ndarray: Original indices of filtered outputs (optional)
+
     """
-    
-    # get indices of layers where outputs have the right shape
-    ref_shape = output[0].shape
-    idx = np.array([i for i, o in enumerate(output) if o.shape == ref_shape])
-    
-    # filter to get the outputs at idx
-    filtered_outputs = np.array([output[i] for i in idx])
-    module_names = np.array([str(modules[i]).split('(', 1)[0].strip() for i in idx])
+    # filter given data by shape
+    if ref_shape is not None:
+        filtered_data, filtered_mods, idx = filter_by_shape(data, modules, ref_shape, returnIndex=True)
+    else: 
+        filtered_data, filtered_mods = data, modules
+        idx = np.arange(len(data))
+        
 
     # calculate (cosine) distances
-    distances_cos = dist_matr(filtered_outputs, type="cosine")
+    distances_cos = dist_matr(filtered_data, type="cosine")
     # extract distances to the last token
     dist_from_token = distances_cos[:, -1, :]
-    
-    return idx, module_names, dist_from_token
 
-def plot_kde(dist_from_token, idx, module_names, labels, filename="dist_kde", fix_lims=True):
+    if returnIndex:
+        return dist_from_token, filtered_mods, idx
+    else:
+        return dist_from_token, filtered_mods
+
+def plot_kde(dist_from_token, module_descriptor, labels, filename="dist_kde", fix_lims=True):
     """
     Plot the Kernel Density Estimate (KDE) of token distance distributions.
 
     Plots the KDE of the cosine distance distribution of the last token
-    for each layer's output. Multiple KDE plots can be overlaid with different labels.
+    for each module's output. Multiple KDE plots can be overlaid with different labels.
 
     Parameters:
     --------
     dist_from_token : np.ndarray
-        Distances from the last token for each layer.
+        Distances from the last token for each module.
         
-    idx : np.ndarray 
-        Indices of the layers with the expected shape.
-        
-    module_names : np.ndarray
-        Names of the modules corresponding to the indices.
+    module_descriptor : np.ndarray
+        Unique identifiers of the modules corresponding to the data.
+        Used in figure titles and filenames.
         
     labels : List[str]
         Labels for the different distributions to plot.
@@ -247,7 +465,7 @@ def plot_kde(dist_from_token, idx, module_names, labels, filename="dist_kde", fi
     --------
     None
     """
-    for n, (i, mod) in enumerate(zip(idx, module_names)):
+    for n, mod in enumerate(module_descriptor):
         fig, ax = plt.subplots(figsize=(8, 3))
 
         for dist, label in zip(dist_from_token, labels):
@@ -264,12 +482,13 @@ def plot_kde(dist_from_token, idx, module_names, labels, filename="dist_kde", fi
         
         ax.set_xlabel("Token distance (cosine)")
         ax.set_ylabel("Density")
-        ax.set_title(f"KDE of Token distance distribution after Module {i}: {mod}")
+        ax.set_title(f"KDE of Token distance distribution after mod. {mod}")
         ax.grid()
         ax.legend(loc='best')
 
         # save each figure as png under specified name + module identifier
-        plt.savefig(f"{filename}_mod{i}_{mod}.png")
+        fig.tight_layout()
+        plt.savefig(f"{filename}_{'_'.join(mod.split())}.png", bbox_inches = "tight")
         
         plt.show()
 
@@ -346,29 +565,29 @@ def plot_dist_heatmap(distances, labels, module_idx, scaling="SharedLin", filena
         ax.set_xticklabels(labels, rotation=90)
         ax.set_yticklabels(labels)
         fig.colorbar(im, ax=ax, orientation='vertical', shrink=0.7)
-        plt.tight_layout()
+        fig.tight_layout()
 
         # save each figure as png under specified name + module identifier
-        plt.savefig(f"{filename}_mod{'_'.join(module_idx[i].split())}.png")
+        plt.savefig(f"{filename}_mod_{'_'.join(module_idx[i].split())}.png", bbox_inches = "tight")
         plt.close(fig)
 
 # we can also make a gif instead :D
-def make_distances_gif(distances, labels, layer_idx, filename="distances.gif", useLogScale=True):
+def make_distances_gif(distances, labels, module_idx, filename="distances.gif", useLogScale=True):
 
     """
-    Create an animated GIF of the distances heatmap for each layer output.
+    Create an animated GIF of the distances heatmap for each module output.
 
     Parameters:
     -----------
     distances : numpy.ndarray
-        A 3D array of shape (num_layers, num_tokens, num_tokens) containing the pairwise distances 
-        between tokens for each layer.
+        A 3D array of shape (num_modules, num_tokens, num_tokens) containing the pairwise distances 
+        between tokens for each module.
     
     labels : list of str
         A list of token labels for the heatmap axes.
     
-    layer_idx : list of str
-        A list of layer indices or names to use as titles for each frame in the GIF.
+    module_idx : list of str
+        A list of module indices or names to use as titles for each frame in the GIF.
     
     filename : str, optional (default="distances.gif")
         The name of the output GIF file.
@@ -414,7 +633,7 @@ def make_distances_gif(distances, labels, layer_idx, filename="distances.gif", u
     # Function to update the plot for each frame
     def update(frame):
         im.set_array(distances[frame])
-        ax.set_title(f"Token distances after Layer: {layer_idx[frame]}")
+        ax.set_title(f"Token distances after Module: {module_idx[frame]}")
         ax.set_xticks(np.arange(len(labels)))
         ax.set_yticks(np.arange(len(labels)))
         ax.set_xticklabels(labels, rotation=90)
