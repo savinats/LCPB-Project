@@ -201,7 +201,7 @@ def get_module_data(model, tokenizer, prompt, getInputs=False):
 
 def get_module_names(model, tokenizer):
     """
-    Extract the names of the module modules in the order of input processing.
+    Extract the names of the modules in the order of input processing.
 
     Parameters:
     --------
@@ -482,7 +482,7 @@ def plot_kde(dist_from_token, module_descriptor, labels, filename="dist_kde", fi
         
         ax.set_xlabel("Token distance (cosine)")
         ax.set_ylabel("Density")
-        ax.set_title(f"KDE of Token distance distribution after mod. {mod}")
+        ax.set_title(f"KDE of Token distance distribution after {mod}")
         ax.grid()
         ax.legend(loc='best')
 
