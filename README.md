@@ -13,4 +13,4 @@ The project consists of the following files and folders:
 - **prompts** Folder containing prompt text files.
 - **Principal_Component_Analysis** Performs 3D PCA on GPT-2 hidden states from large datasets to visualize and analyze model representations.
 - **Intrinsic_dimension.ipynb** Notebook for analysing the intrinsic dimension of intermediate token representations.
-
+- **Transformer Presentation** Powerpoint presentation of the project.
